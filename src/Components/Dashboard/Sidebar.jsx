@@ -81,23 +81,8 @@ export default function Sidebar() {
             setHoveredItem={setHoveredItem}
           />
 
-          <SidebarItem
-            label="Enquiries"
-            tab="enquiries"
-            icon={MessageSquare}
-            active={isActiveTab("enquiries")}
-            hoveredItem={hoveredItem}
-            setHoveredItem={setHoveredItem}
-          />
-
-          <SidebarItem
-            label="Reports"
-            tab="reports"
-            icon={FileText}
-            active={isActiveTab("reports")}
-            hoveredItem={hoveredItem}
-            setHoveredItem={setHoveredItem}
-          />
+         
+         
         </div>
 
         {/* Footer System Status */}
