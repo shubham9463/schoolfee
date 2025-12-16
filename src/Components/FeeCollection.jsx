@@ -34,15 +34,14 @@ export default function FeeCollection() {
   const [remark, setRemark] = useState("");
   const [sendSMS, setSendSMS] = useState(true);
   const [sendWhatsApp, setSendWhatsApp] = useState(true);
+  const [selectedFeeItems, setSelectedFeeItems] = useState({});
 
   useEffect(() => {
-    // load fee structure (localStorage). If not present initialize empty for classes.
     const raw = localStorage.getItem(FEE_KEY);
     setFeeStructure(raw ? JSON.parse(raw) : {});
   }, []);
 
   useEffect(() => {
-    // load student
     const studentId = getStudentIdFromURL();
     const raw = localStorage.getItem(STUDENT_KEY);
     const students = raw ? JSON.parse(raw) : [];
@@ -56,7 +55,6 @@ export default function FeeCollection() {
     }
   }, []);
 
-  // month count affects base total calculation (only monthly items are multiplied)
   function getMonthCount() {
     return Object.values(selectedMonths).filter(Boolean).length;
   }
@@ -67,28 +65,61 @@ export default function FeeCollection() {
     return (feeStructure[clsKey] || feeStructure[student.class] || []);
   }
 
-  // compute displayed fee breakdown (based on selected months)
+  function getLateFineInfo() {
+    const today = new Date(paymentDate);
+    const dueDate = new Date(today.getFullYear(), today.getMonth(), 10);
+
+    if (today <= dueDate) {
+      return { lateDays: 0, fine: 0 };
+    }
+
+    const diffTime = today - dueDate;
+    const lateDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const fine = lateDays * 5;
+
+    return { lateDays, fine };
+  }
+
   function computeFeeBreakdown() {
     const items = getClassFees();
     const months = getMonthCount();
-    return items.map(it => {
+    const { fine: fineAmount } = getLateFineInfo();
+
+    const feeRows = items.map(it => {
+      const checked = selectedFeeItems[it.item] !== false;
+
       let qty = 1;
-      if (!months) { // if no months selected, still show 1 for one-time items; monthly will be 0
+      if (!months) {
         qty = it.frequency === "Monthly" ? 0 : 1;
       } else {
         qty = it.frequency === "Monthly" ? months : 1;
       }
-      return { ...it, qty, total: (it.amount || 0) * qty };
+
+      const total = checked ? (it.amount || 0) * qty : 0;
+      return { ...it, qty, total, checked };
     });
+
+    if (fineAmount > 0) {
+      feeRows.push({
+        item: "Late Fee Fine",
+        frequency: "Daily",
+        amount: 5,
+        qty: fineAmount / 5,
+        total: fineAmount,
+        checked: true,
+        isFine: true
+      });
+    }
+
+    return feeRows;
   }
 
-  // calculate totals
   useEffect(() => {
     const breakdown = computeFeeBreakdown();
     const base = breakdown.reduce((s, i) => s + i.total, 0);
     setTotalFee(base);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [feeStructure, student, selectedMonths]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feeStructure, student, selectedMonths, selectedFeeItems]);
 
   useEffect(() => {
     const total = totalFee + (additionalFee || 0);
@@ -98,13 +129,20 @@ export default function FeeCollection() {
     setNewBalance(net - (amountReceived || 0));
   }, [totalFee, additionalFee, concessionPercent, concessionAmt, oldBalance, amountReceived]);
 
-  const input = "border border-slate-300 px-2 py-1 text-sm rounded w-full";
+  const input = "border-2 border-gray-200 px-3 py-2.5 text-sm rounded-lg w-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all";
 
   if (!student) {
-    return <div className="h-screen flex items-center justify-center text-xl font-semibold">Student Not Found</div>;
+    return (
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="text-6xl mb-4">❌</div>
+          <h2 className="text-2xl font-bold text-gray-800">Student Not Found</h2>
+          <p className="text-gray-600 mt-2">Please check the student ID and try again</p>
+        </div>
+      </div>
+    );
   }
 
-  // Save receipt
   function saveReceipt() {
     if (!amountReceived || amountReceived <= 0) {
       return alert("Enter amount received");
@@ -117,7 +155,7 @@ export default function FeeCollection() {
       section: student.section,
       paymentDate,
       selectedMonths,
-      feeBreakdown: computeFeeBreakdown(),
+      feeBreakdown: computeFeeBreakdown().filter(f => f.checked),
       totalFee,
       additionalFee,
       concessionPercent,
@@ -143,175 +181,363 @@ export default function FeeCollection() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4">
-      <div className="max-w-4xl mx-auto bg-white shadow rounded-lg p-4">
-
-        <div className="flex items-center justify-between border-b pb-2 mb-4">
-          <h2 className="text-lg font-bold">Fee Collection</h2>
-          <button onClick={() => window.history.back()} className="text-sm bg-slate-500 text-white px-3 py-1 rounded">Back</button>
-        </div>
-
-        {/* photo + info */}
-        <div className="flex gap-4 mb-4">
-          <div>
-            {student.photo ? (
-              <img src={student.photo} className="h-28 w-28 rounded-md object-cover border" alt="student"/>
-            ) : (
-              <div className="h-28 w-28 rounded-md bg-slate-300 flex items-center justify-center text-2xl font-bold text-slate-700">
-                {String(student.name || " ")[0]}
-              </div>
-            )}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 p-6">
+      <div className="max-w-6xl mx-auto">
+        
+        {/* Header */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                Fee Collection
+              </h2>
+              <p className="text-gray-600 mt-1">Process student fee payment</p>
+            </div>
+            <button 
+              onClick={() => window.history.back()} 
+              className="bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white px-6 py-2.5 rounded-lg font-medium transition-all shadow-md hover:shadow-lg flex items-center gap-2"
+            >
+              ← Back
+            </button>
           </div>
-
-          <table className="text-sm w-full">
-            <tbody>
-              <tr><td className="font-semibold pr-2">Name:</td><td>{student.name}</td><td className="font-semibold pr-2">Class:</td><td>{student.class}-{student.section}</td></tr>
-              <tr><td className="font-semibold pr-2">Father:</td><td>{student.fatherName}</td><td className="font-semibold pr-2">Reg No:</td><td>{student.regNo}</td></tr>
-              <tr><td className="font-semibold pr-2">Mobile:</td><td>{student.mobile}</td><td className="font-semibold pr-2">SID:</td><td>{student.id}</td></tr>
-              <tr><td className="font-semibold pr-2">Old Balance:</td><td>₹{oldBalance}</td><td className="font-semibold pr-2">Date:</td><td>{paymentDate}</td></tr>
-              <tr><td className="font-semibold pr-2">Address:</td><td colSpan={3}>{student.address}</td></tr>
-            </tbody>
-          </table>
         </div>
 
-        {/* months */}
-        <div className="bg-slate-50 p-3 rounded border mb-3 text-sm">
-          <b>Month Selection</b>
-          <div className="flex flex-wrap gap-3 mt-2">
-            <label>
-              <input type="checkbox" checked={selectAll} onChange={() => {
-                const v = !selectAll;
-                setSelectAll(v);
-                setSelectedMonths(Object.fromEntries(Object.keys(selectedMonths).map(m => [m, v])));
-              }} /> Select All
+        {/* Student Info Card */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
+          <div className="flex gap-6">
+            <div className="flex-shrink-0">
+              {student.photo ? (
+                <img 
+                  src={student.photo} 
+                  className="h-32 w-32 rounded-xl object-cover border-4 border-blue-100 shadow-md" 
+                  alt="student"
+                />
+              ) : (
+                <div className="h-32 w-32 rounded-xl bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-4xl font-bold text-white shadow-md">
+                  {String(student.name || " ")[0]}
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-blue-50 rounded-lg p-3">
+                  <p className="text-xs text-blue-600 font-semibold mb-1">Student Name</p>
+                  <p className="text-gray-800 font-bold text-lg">{student.name}</p>
+                </div>
+                <div className="bg-indigo-50 rounded-lg p-3">
+                  <p className="text-xs text-indigo-600 font-semibold mb-1">Class & Section</p>
+                  <p className="text-gray-800 font-bold text-lg">{student.class}-{student.section}</p>
+                </div>
+                <div className="bg-purple-50 rounded-lg p-3">
+                  <p className="text-xs text-purple-600 font-semibold mb-1">Father's Name</p>
+                  <p className="text-gray-800 font-semibold">{student.fatherName}</p>
+                </div>
+                <div className="bg-pink-50 rounded-lg p-3">
+                  <p className="text-xs text-pink-600 font-semibold mb-1">Registration No</p>
+                  <p className="text-gray-800 font-semibold">{student.regNo}</p>
+                </div>
+                <div className="bg-green-50 rounded-lg p-3">
+                  <p className="text-xs text-green-600 font-semibold mb-1">Mobile</p>
+                  <p className="text-gray-800 font-semibold">{student.mobile}</p>
+                </div>
+                <div className="bg-orange-50 rounded-lg p-3">
+                  <p className="text-xs text-orange-600 font-semibold mb-1">Student ID</p>
+                  <p className="text-gray-800 font-semibold">{student.id}</p>
+                </div>
+                <div className="bg-red-50 rounded-lg p-3">
+                  <p className="text-xs text-red-600 font-semibold mb-1">Old Balance</p>
+                  <p className="text-gray-800 font-bold text-lg">₹{oldBalance}</p>
+                </div>
+                <div className="bg-cyan-50 rounded-lg p-3">
+                  <p className="text-xs text-cyan-600 font-semibold mb-1">Payment Date</p>
+                  <p className="text-gray-800 font-semibold">{paymentDate}</p>
+                </div>
+              </div>
+              <div className="bg-slate-50 rounded-lg p-3 mt-4">
+                <p className="text-xs text-slate-600 font-semibold mb-1">Address</p>
+                <p className="text-gray-800">{student.address}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Month Selection */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
+          <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+            📅 Month Selection
+          </h3>
+          
+          <div className="flex flex-wrap gap-3 mb-4">
+            <label className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white px-4 py-2 rounded-lg cursor-pointer hover:from-blue-600 hover:to-indigo-600 transition-all shadow-md flex items-center gap-2 font-medium">
+              <input 
+                type="checkbox" 
+                checked={selectAll} 
+                onChange={() => {
+                  const v = !selectAll;
+                  setSelectAll(v);
+                  setSelectedMonths(Object.fromEntries(Object.keys(selectedMonths).map(m => [m, v])));
+                }} 
+                className="w-4 h-4"
+              /> 
+              Select All
             </label>
 
             {Object.keys(selectedMonths).map(m => (
-              <label key={m}>
-                <input type="checkbox" checked={selectedMonths[m]} onChange={() => setSelectedMonths(p => ({ ...p, [m]: !p[m] }))} /> {m}
+              <label 
+                key={m} 
+                className={`px-4 py-2 rounded-lg cursor-pointer transition-all border-2 font-medium ${
+                  selectedMonths[m] 
+                    ? 'bg-blue-500 text-white border-blue-500 shadow-md' 
+                    : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+                }`}
+              >
+                <input 
+                  type="checkbox" 
+                  checked={selectedMonths[m]} 
+                  onChange={() => setSelectedMonths(p => ({ ...p, [m]: !p[m] }))} 
+                  className="hidden"
+                /> 
+                {m}
               </label>
             ))}
           </div>
 
           {Object.values(selectedMonths).includes(true) && (
-            <button onClick={() => setShowFeeTable(true)} className="mt-3 bg-blue-600 text-white px-4 py-1 rounded text-sm">Show Fee Structure</button>
+            <button
+              onClick={() => {
+                const init = {};
+                getClassFees().forEach(it => (init[it.item] = true));
+                setSelectedFeeItems(init);
+                setShowFeeTable(true);
+              }}
+              className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-6 py-3 rounded-lg font-semibold transition-all shadow-md hover:shadow-lg"
+            >
+              ✨ Show Fee Structure
+            </button>
           )}
         </div>
 
-        {/* class-based fee structure */}
+        {/* Fee Structure Table */}
         {showFeeTable && (
-          <div className="mt-2 border rounded bg-white p-3 shadow text-sm mb-4">
-            <h3 className="font-bold mb-2 text-slate-700">Fee Structure for {student.class}</h3>
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">
+              💰 Fee Structure for Class {student.class}
+            </h3>
 
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="py-1">Item</th>
-                  <th className="py-1">Frequency</th>
-                  <th className="py-1 text-right">Rate</th>
-                  <th className="py-1 text-right">Qty</th>
-                  <th className="py-1 text-right">Total</th>
-                </tr>
-              </thead>
+            {(() => {
+              const { lateDays, fine } = getLateFineInfo();
+              if (fine === 0) return null;
 
-              <tbody>
-                {computeFeeBreakdown().map((row, i) => (
-                  <tr key={i} className="border-b">
-                    <td className="py-1">{row.item}</td>
-                    <td className="py-1">{row.frequency}</td>
-                    <td className="py-1 text-right">₹{row.amount}</td>
-                    <td className="py-1 text-right">{row.qty}</td>
-                    <td className="py-1 text-right">₹{row.total}</td>
+              return (
+                <div className="mb-4 p-4 rounded-xl border-2 border-red-300 bg-gradient-to-r from-red-50 to-orange-50 text-red-700">
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl">⚠️</span>
+                    <div>
+                      <p className="font-bold text-lg">Late Fee Applied</p>
+                      <p className="mt-1">₹5 per day after 10th of the month</p>
+                      <p className="mt-1">Payment is <strong>{lateDays} day(s)</strong> late → <strong className="text-xl">Fine ₹{fine}</strong></p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white">
+                    <th className="py-3 px-4 text-left rounded-tl-lg">✔</th>
+                    <th className="py-3 px-4 text-left">Item</th>
+                    <th className="py-3 px-4 text-left">Frequency</th>
+                    <th className="py-3 px-4 text-right">Rate</th>
+                    <th className="py-3 px-4 text-right">Qty</th>
+                    <th className="py-3 px-4 text-right rounded-tr-lg">Total</th>
                   </tr>
-                ))}
+                </thead>
+                <tbody>
+                  {computeFeeBreakdown().map((row, i) => (
+                    <tr
+                      key={i}
+                      className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                        row.isFine ? "bg-red-50 text-red-700 font-semibold" : ""
+                      }`}
+                    >
+                      <td className="py-3 px-4">
+                        <input
+                          type="checkbox"
+                          checked={row.checked}
+                          onChange={() =>
+                            setSelectedFeeItems(p => ({
+                              ...p,
+                              [row.item]: !p[row.item]
+                            }))
+                          }
+                          className="w-5 h-5 rounded border-gray-300"
+                        />
+                      </td>
+                      <td className="py-3 px-4 font-medium">{row.item}</td>
+                      <td className="py-3 px-4">
+                        <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-semibold">
+                          {row.frequency}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">₹{row.amount}</td>
+                      <td className="py-3 px-4 text-right">{row.qty}</td>
+                      <td className="py-3 px-4 text-right font-bold">₹{row.total}</td>
+                    </tr>
+                  ))}
 
-                <tr className="font-bold text-blue-600">
-                  <td className="py-1">Subtotal</td>
-                  <td></td>
-                  <td></td>
-                  <td></td>
-                  <td className="py-1 text-right">₹{totalFee}</td>
-                </tr>
-              </tbody>
-            </table>
+                  <tr className="bg-gradient-to-r from-blue-50 to-indigo-50 font-bold text-blue-700">
+                    <td colSpan={5} className="py-3 px-4 text-lg">Subtotal</td>
+                    <td className="py-3 px-4 text-right text-xl">₹{totalFee}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
-        {/* fees inputs */}
-        <div className="grid grid-cols-4 gap-3 text-sm mb-4">
-          <div>
-            <label>Total Fee</label>
-            <input type="number" className={input} value={totalFee} onChange={(e) => setTotalFee(+e.target.value)} />
-          </div>
+        {/* Fee Calculation */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
+          <h3 className="text-xl font-bold text-gray-800 mb-4">🧮 Fee Calculation</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Total Fee</label>
+              <input 
+                type="number" 
+                className={input} 
+                value={totalFee} 
+                onChange={(e) => setTotalFee(+e.target.value)} 
+              />
+            </div>
 
-          <div>
-            <label>Additional</label>
-            <input type="number" className={input} value={additionalFee} onChange={(e) => setAdditionalFee(+e.target.value)} />
-          </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Additional Fee</label>
+              <input 
+                type="number" 
+                className={input} 
+                value={additionalFee} 
+                onChange={(e) => setAdditionalFee(+e.target.value)} 
+              />
+            </div>
 
-          <div>
-            <label>Concession (%)</label>
-            <input type="number" className={input} value={concessionPercent} onChange={(e) => { setConcessionPercent(+e.target.value); setConcessionAmt(0); }} />
-          </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Concession (%)</label>
+              <input 
+                type="number" 
+                className={input} 
+                value={concessionPercent} 
+                onChange={(e) => { setConcessionPercent(+e.target.value); setConcessionAmt(0); }} 
+              />
+            </div>
 
-          <div>
-            <label>Concession Amt</label>
-            <input type="number" className={input} value={concessionAmt} onChange={(e) => { setConcessionAmt(+e.target.value); setConcessionPercent(0); }} />
-          </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Concession Amount</label>
+              <input 
+                type="number" 
+                className={input} 
+                value={concessionAmt} 
+                onChange={(e) => { setConcessionAmt(+e.target.value); setConcessionPercent(0); }} 
+              />
+            </div>
 
-          <div>
-            <label>Net Fee</label>
-            <input type="number" className={input} readOnly value={netFee} />
-          </div>
+            <div className="bg-blue-50 rounded-xl p-4 border-2 border-blue-200">
+              <label className="block text-sm font-semibold text-blue-700 mb-2">Net Fee</label>
+              <p className="text-2xl font-bold text-blue-600">₹{netFee}</p>
+            </div>
 
-          <div>
-            <label>Amount Received</label>
-            <input type="number" className={input} value={amountReceived} onChange={(e) => setAmountReceived(+e.target.value)} />
-          </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Amount Received</label>
+              <input 
+                type="number" 
+                className={input} 
+                value={amountReceived} 
+                onChange={(e) => setAmountReceived(+e.target.value)} 
+              />
+            </div>
 
-          <div>
-            <label>New Balance</label>
-            <input type="number" className={input} readOnly value={newBalance} />
-          </div>
-        </div>
-
-        {/* payment details */}
-        <div className="grid grid-cols-5 gap-3 text-sm bg-slate-50 p-3 rounded border mb-4">
-          <div>
-            <label>Mode</label>
-            <select className={input} value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
-              <option>Cash</option>
-              <option>Cheque</option>
-              <option>Online</option>
-              <option>UPI</option>
-            </select>
-          </div>
-
-          <div>
-            <label>Bank</label>
-            <input type="text" className={input} value={bankName} onChange={(e) => setBankName(e.target.value)} />
-          </div>
-
-          <div>
-            <label>Cheque No</label>
-            <input type="text" className={input} value={chequeNo} onChange={(e) => setChequeNo(e.target.value)} />
-          </div>
-
-          <div>
-            <label>Cheque Date</label>
-            <input type="date" className={input} value={chequeDate} onChange={(e) => setChequeDate(e.target.value)} />
-          </div>
-
-          <div>
-            <label>Remark</label>
-            <input type="text" className={input} value={remark} onChange={(e) => setRemark(e.target.value)} />
+            <div className="bg-orange-50 rounded-xl p-4 border-2 border-orange-200">
+              <label className="block text-sm font-semibold text-orange-700 mb-2">New Balance</label>
+              <p className="text-2xl font-bold text-orange-600">₹{newBalance}</p>
+            </div>
           </div>
         </div>
 
-        {/* actions */}
-        <div className="flex justify-end gap-2">
-          <button onClick={() => window.history.back()} className="bg-slate-400 text-white px-4 py-1 rounded text-sm">Cancel</button>
-          <button onClick={saveReceipt} className="bg-green-600 text-white px-4 py-1 rounded text-sm">Save & Print</button>
+        {/* Payment Details */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
+          <h3 className="text-xl font-bold text-gray-800 mb-4">💳 Payment Details</h3>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Payment Mode</label>
+              <select 
+                className={input} 
+                value={paymentMode} 
+                onChange={(e) => setPaymentMode(e.target.value)}
+              >
+                <option>Cash</option>
+                <option>Cheque</option>
+                <option>Online</option>
+                <option>UPI</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Bank Name</label>
+              <input 
+                type="text" 
+                className={input} 
+                value={bankName} 
+                onChange={(e) => setBankName(e.target.value)} 
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Cheque No</label>
+              <input 
+                type="text" 
+                className={input} 
+                value={chequeNo} 
+                onChange={(e) => setChequeNo(e.target.value)} 
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Cheque Date</label>
+              <input 
+                type="date" 
+                className={input} 
+                value={chequeDate} 
+                onChange={(e) => setChequeDate(e.target.value)} 
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Remark</label>
+              <input 
+                type="text" 
+                className={input} 
+                value={remark} 
+                onChange={(e) => setRemark(e.target.value)} 
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex justify-end gap-4">
+          <button 
+            onClick={() => window.history.back()} 
+            className="bg-gray-500 hover:bg-gray-600 text-white px-8 py-3 rounded-xl font-semibold transition-all shadow-md hover:shadow-lg"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={saveReceipt} 
+            className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-8 py-3 rounded-xl font-semibold transition-all shadow-md hover:shadow-lg flex items-center gap-2"
+          >
+            💾 Save & Print
+          </button>
         </div>
 
       </div>
